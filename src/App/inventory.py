@@ -8,12 +8,36 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
+
+
+class _ProductRow(TypedDict):
+    quantity: int
+    price: float
+
 
 DATA_FILE = Path(__file__).resolve().with_name("inventory_data.json")
 
 
-def _load() -> dict[str, int]:
+def _normalize_value(v: Any) -> _ProductRow | None:
+    """Accept legacy int (quantity only) or dict with quantity and optional price."""
+    if isinstance(v, int) and v >= 0:
+        return {"quantity": v, "price": 0.0}
+    if isinstance(v, dict):
+        q = v.get("quantity")
+        if not isinstance(q, int) or q < 0:
+            return None
+        raw_p = v.get("price", 0.0)
+        if isinstance(raw_p, bool) or not isinstance(raw_p, (int, float)):
+            return None
+        p = float(raw_p)
+        if p < 0:
+            return None
+        return {"quantity": q, "price": p}
+    return None
+
+
+def _load() -> dict[str, _ProductRow]:
     if not DATA_FILE.exists():
         return {}
     try:
@@ -22,16 +46,21 @@ def _load() -> dict[str, int]:
         return {}
     if not isinstance(raw, dict):
         return {}
-    out: dict[str, int] = {}
+    out: dict[str, _ProductRow] = {}
     for k, v in raw.items():
-        if isinstance(k, str) and isinstance(v, int) and v >= 0:
-            out[k.strip()] = v
+        if not isinstance(k, str):
+            continue
+        name = k.strip()
+        row = _normalize_value(v)
+        if row is not None:
+            out[name] = row
     return out
 
 
-def _save(data: dict[str, int]) -> None:
+def _save(data: dict[str, _ProductRow]) -> None:
+    serializable = {name: dict(row) for name, row in sorted(data.items())}
     DATA_FILE.write_text(
-        json.dumps(dict(sorted(data.items())), indent=2, ensure_ascii=False) + "\n",
+        json.dumps(serializable, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
 
@@ -45,7 +74,10 @@ def add_stock(name: str, quantity: int) -> None:
         raise ValueError("Quantity to add must be positive.")
 
     data = _load()
-    data[name] = data.get(name, 0) + quantity
+    if name not in data:
+        data[name] = {"quantity": quantity, "price": 0.0}
+    else:
+        data[name]["quantity"] += quantity
     _save(data)
 
 
@@ -55,10 +87,11 @@ def edit_product(
     new_name: str | None = None,
     add_quantity: int = 0,
     remove_quantity: int = 0,
+    price: float | None = None,
 ) -> None:
     """
-    Edit a product: optional rename, optional add/remove stock.
-    At least one of new_name, add_quantity, or remove_quantity must change something.
+    Edit a product: optional rename, optional add/remove stock, optional new price.
+    Pass ``price`` to set unit price; omit or pass None to leave it unchanged.
     """
     current_name = current_name.strip()
     if not current_name:
@@ -75,14 +108,23 @@ def edit_product(
     if add_quantity < 0 or remove_quantity < 0:
         raise ValueError("add_quantity and remove_quantity must be non-negative.")
 
-    qty = data.pop(current_name) + add_quantity - remove_quantity
+    row = data.pop(current_name)
+    qty = row["quantity"] + add_quantity - remove_quantity
     if qty < 0:
         raise ValueError("Stock cannot be negative after this change.")
 
     if final_name != current_name and final_name in data:
         raise ValueError(f"A product named {final_name!r} already exists.")
 
-    data[final_name] = qty
+    new_price = row["price"]
+    if price is not None:
+        if isinstance(price, bool) or not isinstance(price, (int, float)):
+            raise TypeError("price must be a number.")
+        new_price = float(price)
+        if new_price < 0:
+            raise ValueError("Price cannot be negative.")
+
+    data[final_name] = {"quantity": qty, "price": new_price}
     _save(data)
 
 
@@ -99,10 +141,13 @@ def delete_product(name: str) -> None:
     _save(data)
 
 
-def list_products() -> list[tuple[str, int]]:
-    """Return all products as (name, quantity), sorted by name."""
+def list_products() -> list[tuple[str, int, float]]:
+    """Return all products as (name, quantity, price), sorted by name."""
     data = _load()
-    return sorted(data.items(), key=lambda x: x[0].lower())
+    return sorted(
+        ((n, r["quantity"], r["price"]) for n, r in data.items()),
+        key=lambda x: x[0].lower(),
+    )
 
 
 def _prompt_int(message: str) -> int:
@@ -134,21 +179,24 @@ def _menu() -> None:
 
         elif choice == "2":
             current = input("Current product name: ").strip()
-            print("Leave blank to keep current name.")
+            print("Leave blank to keep current name / price.")
             new_name = input("New name (optional): ").strip() or None
             add_s = input("Quantity to add (0 if none): ").strip() or "0"
             rem_s = input("Quantity to remove (0 if none): ").strip() or "0"
+            price_in = input("New unit price (blank to keep): ").strip()
             try:
                 add_q = int(add_s)
                 rem_q = int(rem_s)
+                new_price = float(price_in) if price_in else None
                 edit_product(
                     current,
                     new_name=new_name,
                     add_quantity=add_q,
                     remove_quantity=rem_q,
+                    price=new_price,
                 )
                 print("Product updated.")
-            except (ValueError, KeyError) as e:
+            except (ValueError, KeyError, TypeError) as e:
                 print(f"Error: {e}")
 
         elif choice == "3":
@@ -164,8 +212,8 @@ def _menu() -> None:
             if not items:
                 print("No products.")
             else:
-                for n, q in items:
-                    print(f"  {n}: {q}")
+                for n, q, p in items:
+                    print(f"  {n}: qty={q}, price={p}")
 
         elif choice == "5":
             print("Goodbye.")

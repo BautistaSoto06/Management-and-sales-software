@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-import inventory
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_SRC_DIR = _PROJECT_ROOT / "src"
+if _SRC_DIR.is_dir() and str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
+from App import inventory
 
 
-class InventoryTests(unittest.TestCase):
+class TestInventory(unittest.TestCase):
     def setUp(self) -> None:
         self._tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmpdir.cleanup)
@@ -23,16 +29,16 @@ class InventoryTests(unittest.TestCase):
 
     def test_add_stock_creates_product(self) -> None:
         inventory.add_stock("Mug", 3)
-        self.assertEqual(inventory.list_products(), [("Mug", 3)])
+        self.assertEqual(inventory.list_products(), [("Mug", 3, 0.0)])
 
     def test_add_stock_increments_existing(self) -> None:
         inventory.add_stock("Pen", 10)
         inventory.add_stock("Pen", 5)
-        self.assertEqual(inventory.list_products(), [("Pen", 15)])
+        self.assertEqual(inventory.list_products(), [("Pen", 15, 0.0)])
 
     def test_add_stock_strips_name(self) -> None:
         inventory.add_stock("  Eraser  ", 2)
-        self.assertEqual(inventory.list_products(), [("Eraser", 2)])
+        self.assertEqual(inventory.list_products(), [("Eraser", 2, 0.0)])
 
     def test_add_stock_empty_name_raises(self) -> None:
         with self.assertRaisesRegex(ValueError, "empty"):
@@ -54,28 +60,44 @@ class InventoryTests(unittest.TestCase):
         inventory.add_stock("apple", 1)
         inventory.add_stock("Banana", 2)
         inventory.add_stock("apricot", 3)
-        names = [n for n, _ in inventory.list_products()]
+        names = [n for n, _, _ in inventory.list_products()]
         self.assertEqual(names, ["apple", "apricot", "Banana"])
 
     def test_edit_product_rename_only(self) -> None:
         inventory.add_stock("Old", 7)
         inventory.edit_product("Old", new_name="New")
-        self.assertEqual(inventory.list_products(), [("New", 7)])
+        self.assertEqual(inventory.list_products(), [("New", 7, 0.0)])
 
     def test_edit_product_add_and_remove_stock(self) -> None:
         inventory.add_stock("Item", 10)
         inventory.edit_product("Item", add_quantity=4, remove_quantity=3)
-        self.assertEqual(inventory.list_products(), [("Item", 11)])
+        self.assertEqual(inventory.list_products(), [("Item", 11, 0.0)])
 
     def test_edit_product_rename_and_quantities(self) -> None:
         inventory.add_stock("A", 5)
         inventory.edit_product("A", new_name="B", add_quantity=2, remove_quantity=1)
-        self.assertEqual(inventory.list_products(), [("B", 6)])
+        self.assertEqual(inventory.list_products(), [("B", 6, 0.0)])
+
+    def test_edit_product_sets_price(self) -> None:
+        inventory.add_stock("Book", 2)
+        inventory.edit_product("Book", price=12.5)
+        self.assertEqual(inventory.list_products(), [("Book", 2, 12.5)])
+
+    def test_edit_product_price_preserved_on_rename(self) -> None:
+        inventory.add_stock("X", 1)
+        inventory.edit_product("X", price=9.0)
+        inventory.edit_product("X", new_name="Y")
+        self.assertEqual(inventory.list_products(), [("Y", 1, 9.0)])
+
+    def test_edit_product_negative_price_raises(self) -> None:
+        inventory.add_stock("P", 1)
+        with self.assertRaisesRegex(ValueError, "Price"):
+            inventory.edit_product("P", price=-1.0)
 
     def test_edit_product_keep_name_when_new_name_none(self) -> None:
         inventory.add_stock("Same", 3)
         inventory.edit_product("Same", new_name=None, add_quantity=1)
-        self.assertEqual(inventory.list_products(), [("Same", 4)])
+        self.assertEqual(inventory.list_products(), [("Same", 4, 0.0)])
 
     def test_edit_product_missing_raises(self) -> None:
         with self.assertRaises(KeyError):
@@ -126,12 +148,19 @@ class InventoryTests(unittest.TestCase):
         inventory.DATA_FILE.write_text("{not json", encoding="utf-8")
         self.assertEqual(inventory.list_products(), [])
         inventory.add_stock("AfterBadFile", 1)
-        self.assertEqual(inventory.list_products(), [("AfterBadFile", 1)])
+        self.assertEqual(inventory.list_products(), [("AfterBadFile", 1, 0.0)])
 
     def test_persist_round_trip(self) -> None:
         inventory.add_stock("Persist", 9)
         raw = json.loads(inventory.DATA_FILE.read_text(encoding="utf-8"))
-        self.assertEqual(raw.get("Persist"), 9)
+        self.assertEqual(raw.get("Persist"), {"quantity": 9, "price": 0.0})
+
+    def test_load_legacy_int_quantity(self) -> None:
+        inventory.DATA_FILE.write_text(
+            json.dumps({"Legacy": 4}),
+            encoding="utf-8",
+        )
+        self.assertEqual(inventory.list_products(), [("Legacy", 4, 0.0)])
 
 
 if __name__ == "__main__":
