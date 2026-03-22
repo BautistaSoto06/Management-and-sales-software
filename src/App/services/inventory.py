@@ -65,21 +65,32 @@ def _save(data: dict[str, _ProductRow]) -> None:
     )
 
 
-def add_stock(name: str, quantity: int) -> None:
+def create_product(name: str, quantity: int, price: float) -> None:
     """Add quantity to a product. Creates the product if it does not exist."""
     name = name.strip()
+    price = float(price)
+    if price < 0:
+        raise ValueError("Price cannot be negative.")
     if not name:
         raise ValueError("Product name cannot be empty.")
     if quantity <= 0:
         raise ValueError("Quantity to add must be positive.")
 
     data = _load()
-    if name not in data:
-        data[name] = {"quantity": quantity, "price": 0.0}
-    else:
-        data[name]["quantity"] += quantity
+    if name in data:
+        raise ValueError(f"Product {name!r} already exists.")
+
+    data[name] = {"quantity": quantity, "price": price}
     _save(data)
 
+def add_stock(name: str, quantity: int) -> None:
+    if quantity <= 0:
+        raise ValueError("Quantity to add must be positive.")
+    data = _load()
+    if name not in data:
+        raise KeyError(f"Product not found: {name!r}")
+    data[name]["quantity"] += quantity
+    _save(data)
 
 def edit_product(
     current_name: str,
@@ -171,9 +182,11 @@ def _menu() -> None:
         if choice == "1":
             name = input("Product name: ").strip()
             try:
-                qty = _prompt_int("Quantity to add: ")
-                add_stock(name, qty)
-                print("Stock updated.")
+                qty = _prompt_int("Initial quantity: ")
+                price_s = input("Unit price: ").strip() or "0"
+                unit_price = float(price_s)
+                create_product(name, qty, unit_price)
+                print("Product created.")
             except (ValueError, KeyError) as e:
                 print(f"Error: {e}")
 
