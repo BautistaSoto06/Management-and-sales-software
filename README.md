@@ -6,7 +6,7 @@ This project consists of the development of a Sales and Inventory Management Sys
 
 The system is focused on small and medium-sized businesses, aiming to optimize processes and improve internal organization.
 
-##Objectives
+Objectives
 
 Automate product and stock management
 Register sales quickly and accurately
@@ -27,7 +27,7 @@ View sales history
 Reports
 Best-selling products
 Sales by period
-###Revenue tracking
+Revenue tracking
 ---------------------------------------------------------------------------
 User Management
 Authentication system (login)
