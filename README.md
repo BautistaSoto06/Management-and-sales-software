@@ -22,16 +22,16 @@ The system is focused on small and medium-sized businesses, aiming to optimize p
 - Manage stock levels
 - Update product prices
 
-### Sales Management
+### Sales Management (in progress)
 - Register new sales
 - Automatically calculate totals
 - View sales history
 
-### Reports
+### Reports (in progress)
 - Best-selling products
 - Sales by period
 - Revenue tracking
 
-### User Management
+### User Management (in progress)
 - Authentication system (login)
 - Role-based access (Admin / Employee)
